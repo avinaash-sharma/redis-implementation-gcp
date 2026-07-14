@@ -1,0 +1,327 @@
+# GKE Deployment with Internal Application Load Balancer — Step-by-Step Guide
+
+**Project:** `adtgcp-ent-dev-ccs-tlcm-fe10`
+**Cluster:** `gcldccsinsght01` (regional, `us-central1`)
+**Goal:** Deploy a multi-pod Deployment on GKE fronted by an **internal Application Load Balancer (HTTP frontend)**.
+
+---
+
+## How This Works (Read First)
+
+On GKE, you do **not** create the load balancer by hand. The **Ingress resource creates the internal ALB for you** — forwarding rule, Envoy proxies, URL map, backend service, health checks. The order of operations is:
+
+1. **Prerequisites** — proxy-only subnet (+ optional static internal IP)
+2. **Deployment** — your pods
+3. **Service (with NEG annotation)** — groups the pods, exposes them as Network Endpoint Groups
+4. **Ingress (class `gce-internal`)** — provisions the internal ALB
+5. **Verify & test**
+
+> **Critical:** The Service **must** have the NEG annotation (`cloud.google.com/neg: '{"ingress": true}'`). Without it, GKE falls back to legacy instance-group mode and you get the error:
+> *"instance may belong to at most one load-balanced instance group"*
+> — because the cluster nodes are already members of a load-balanced instance group from an existing LB (e.g., the existing `ui-connector-gke` load balancers). NEG mode routes directly to pod IPs and never touches instance groups, so multiple LBs coexist without conflict.
+
+---
+
+## Step 1: Verify/Create the Proxy-Only Subnet
+
+Internal ALBs on GCP are Envoy-based and **require a proxy-only subnet** in the same VPC and region. This is the most commonly missed prerequisite.
+
+### 1a. Find the exact network the cluster uses
+
+```bash
+gcloud container clusters describe gcldccsinsght01 \
+  --region=us-central1 \
+  --project=adtgcp-ent-dev-ccs-tlcm-fe10 \
+  --format="value(network, subnetwork)"
+```
+
+> **Shared VPC note:** If the network path shows `projects/OTHER_PROJECT/...`, the VPC is hosted in another project. Run the next command against that **host project**.
+
+### 1b. Check whether a proxy-only subnet already exists
+
+```bash
+gcloud compute networks subnets list \
+  --project=adtgcp-ent-dev-ccs-tlcm-fe10 \
+  --filter="purpose=REGIONAL_MANAGED_PROXY AND region=us-central1" \
+  --format="table(name, network, ipCidrRange, role)"
+```
+
+- **A subnet appears with role `ACTIVE`** → Step 1 done, go to Step 2.
+- **Nothing appears** → create it (or request it from the network team):
+
+### 1c. Create the proxy-only subnet (if missing)
+
+```bash
+gcloud compute networks subnets create proxy-only-us-central1 \
+  --project=NETWORK_HOST_PROJECT \
+  --purpose=REGIONAL_MANAGED_PROXY \
+  --role=ACTIVE \
+  --region=us-central1 \
+  --network=YOUR_VPC_NAME \
+  --range=10.129.0.0/23
+```
+
+- `--range` must be an **unused CIDR** in the VPC. A `/23` is the recommended size.
+- In restricted enterprise environments, subnet creation on a Shared VPC usually requires network-team permissions — raise a request if the command is denied.
+
+### 1d. (Optional) Reserve a static internal IP
+
+Useful for stable firewall rules and client configuration:
+
+```bash
+gcloud compute addresses create my-app-internal-ip \
+  --project=adtgcp-ent-dev-ccs-tlcm-fe10 \
+  --region=us-central1 \
+  --subnet=YOUR_SUBNET \
+  --purpose=SHARED_LOADBALANCER_VIP
+```
+
+---
+
+## Step 2: Create the Deployment (Multiple Pods)
+
+`deployment.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+  labels:
+    app: my-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: my-app
+  template:
+    metadata:
+      labels:
+        app: my-app
+    spec:
+      containers:
+        - name: my-app
+          image: us-central1-docker.pkg.dev/YOUR_PROJECT/YOUR_REPO/my-app:latest
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+```
+
+> **Health check note:** The internal ALB derives its health check from the pod's `readinessProbe`. If the app doesn't return `200` on the probe path, backends show unhealthy and clients get 502s. Adjust `path`/`port` to match your app.
+
+Apply:
+
+```bash
+kubectl apply -f deployment.yaml
+kubectl get pods -l app=my-app
+```
+
+---
+
+## Step 3: Create the Service (NEG Annotation Required)
+
+`service.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-app-svc
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+spec:
+  type: ClusterIP
+  selector:
+    app: my-app
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+```
+
+Key points:
+
+- `type: ClusterIP` is correct — the Ingress handles external reachability.
+- The NEG annotation enables **container-native load balancing** (LB → pod IPs directly).
+- On newer VPC-native clusters the annotation may be auto-added for Ingress, but declare it explicitly to be safe.
+
+Apply and verify the NEG is created:
+
+```bash
+kubectl apply -f service.yaml
+kubectl get svcneg
+# or:
+kubectl describe svc my-app-svc | grep -i neg
+```
+
+---
+
+## Step 4: Create the Internal Ingress (This Provisions the ALB)
+
+`ingress.yaml`:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: my-app-internal-ingress
+  annotations:
+    kubernetes.io/ingress.class: "gce-internal"
+    # Optional — only if you reserved a static IP in Step 1d:
+    # kubernetes.io/ingress.regional-static-ip-name: "my-app-internal-ip"
+spec:
+  defaultBackend:
+    service:
+      name: my-app-svc
+      port:
+        number: 80
+```
+
+Optional path-based routing:
+
+```yaml
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: my-app-svc
+                port:
+                  number: 80
+```
+
+> **Important:** For the internal class you must use the **annotation** `kubernetes.io/ingress.class: "gce-internal"`. The newer `spec.ingressClassName` field is **not supported** for `gce-internal`.
+
+Apply:
+
+```bash
+kubectl apply -f ingress.yaml
+```
+
+---
+
+## Step 5: Verify and Test
+
+Provisioning typically takes **3–5 minutes**.
+
+```bash
+kubectl get ingress my-app-internal-ingress
+```
+
+The `ADDRESS` column will show an internal RFC-1918 IP from your subnet.
+
+Check backend health:
+
+```bash
+kubectl describe ingress my-app-internal-ingress
+gcloud compute network-endpoint-groups list --filter="region:us-central1"
+```
+
+Test from a VM or pod **inside the VPC**:
+
+```bash
+curl http://INTERNAL_IP/
+```
+
+---
+
+## Troubleshooting
+
+### Error: "instance may belong to at most one load-balanced instance group"
+
+**Cause:** The Service was created without the NEG annotation, so GKE tried legacy instance-group mode — and the nodes are already in a load-balanced instance group from an existing LB.
+
+**Fix (reliable sequence):** Adding the annotation to an existing Service sometimes doesn't cleanly switch modes. Recreate cleanly:
+
+```bash
+# 1. Delete the ingress first (removes half-created LB resources)
+kubectl delete ingress my-app-internal-ingress
+
+# 2. Delete and recreate the service WITH the NEG annotation
+kubectl delete svc my-app-svc
+kubectl apply -f service.yaml
+
+# 3. Verify the NEG exists before re-applying the ingress
+kubectl get svcneg
+
+# 4. Re-apply the ingress
+kubectl apply -f ingress.yaml
+```
+
+Then check for orphaned resources from the failed attempt (the GKE controller usually garbage-collects them when the Ingress is deleted):
+
+```bash
+gcloud compute instance-groups unmanaged list --filter="name~k8s"
+gcloud compute backend-services list --filter="name~k8s"
+```
+
+Anything with a `k8s-ig--` prefix that isn't referenced by a working LB is leftover from instance-group mode.
+
+### Confirm the cluster is VPC-native (required for NEGs)
+
+```bash
+gcloud container clusters describe gcldccsinsght01 \
+  --region=us-central1 \
+  --format="value(ipAllocationPolicy.useIpAliases)"
+```
+
+`True` → NEGs supported. Empty/`False` → routes-based cluster, NEGs unavailable (rare on modern GKE).
+
+### 502s / unhealthy backends
+
+- Confirm the `readinessProbe` path returns `200`.
+- For custom health-check or timeout settings (e.g., long-lived WebSocket connections needing a 3600s timeout), attach a `BackendConfig`:
+
+```yaml
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: my-app-backendconfig
+spec:
+  timeoutSec: 3600
+  healthCheck:
+    requestPath: /healthz
+    port: 8080
+    type: HTTP
+```
+
+Reference it on the Service:
+
+```yaml
+metadata:
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+    cloud.google.com/backend-config: '{"default": "my-app-backendconfig"}'
+```
+
+### Clients can't reach the internal IP
+
+- The internal ALB is only reachable from **within the VPC** (or peered networks / Interconnect with global access configured). Confirm which VPC the clients are on — cross-VPC access (e.g., `adtgcp-gsrv-core-1` vs `adtgcp-gsrv-devgke-1`) requires peering or other connectivity.
+- Verify a firewall rule allows ingress **from the proxy-only subnet CIDR** to the node/pod ranges on the target port. GKE usually auto-creates it, but restricted org policies can block that.
+
+---
+
+## Quick Reference — Apply Order
+
+```bash
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml      # must include NEG annotation
+kubectl get svcneg                 # verify NEG before ingress
+kubectl apply -f ingress.yaml
+kubectl get ingress -w             # wait for ADDRESS
+```
