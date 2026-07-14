@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adt-ui-connectorv2-1
+  namespace: ui-connector-dev-v3
+  labels:
+    app: adt-ui-connectorv2-1
+spec:
+  # Constraint: Exactly ONE Pod running in the cluster
+  replicas: 1
+  selector:
+    matchLabels:
+      app: adt-ui-connectorv2-1
+  template:
+    metadata:
+      labels:
+        app: adt-ui-connectorv2-1
+    spec:
+      containers:
+        - name: adt-ui-connectorv2-1
+          image: us-central1-docker.pkg.dev/adtgcp-ent-dev-ccs-tlcm-fe10/cloud-run-source-deploy/adt-ui-connectorv2@sha256:ab754324fda04067c5ca2dcdaa0644b372f9c85f44e0a26d4ea36d940c0950f
+          ports:
+            - containerPort: 8080  # The port your application code listens on
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-connector-service
+  namespace: ui-connector-dev-v3
+  annotations:
+    # Triggers GKE to automatically create a Network Endpoint Group (NEG) for the Ingress
+    cloud.google.com/neg: '{"ingress": true}'
+    # Attaches the BackendConfig below (3600s timeout for long-lived WebSockets)
+    cloud.google.com/backend-config: '{"default": "ui-connector-backendconfig"}'
+spec:
+  type: ClusterIP
+  selector:
+    app: adt-ui-connectorv2-1
+  ports:
+    - port: 80          # The port the Load Balancer will target
+      targetPort: 8080  # Maps directly to the containerPort defined above
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-connector-ingress
+  namespace: ui-connector-dev-v3
+  annotations:
+    # CRITICAL: This class tells GCP to provision an Internal Application Load Balancer (ILB)
+    kubernetes.io/ingress.class: "gce-internal"
+spec:
+  rules:
+    - host: agentassist.adt.com
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: api-connector-service
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-connector-service
+                port:
+                  number: 80
+---
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: ui-connector-backendconfig
+  namespace: ui-connector-dev-v3
+spec:
+  timeoutSec: 3600
