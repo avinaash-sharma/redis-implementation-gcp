@@ -1,0 +1,5 @@
+curl -v --http1.1 \
+  -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==" \
+  -H "Sec-WebSocket-Version: 13" \
+  "https://agentassist.adt.com/ws?conversation_id=test-123"
