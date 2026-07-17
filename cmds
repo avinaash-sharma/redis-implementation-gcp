@@ -3,3 +3,13 @@ curl -v --http1.1 \
   -H "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==" \
   -H "Sec-WebSocket-Version: 13" \
   "https://agentassist.adt.com/ws?conversation_id=test-123"
+
+
+
+
+curl -v --http1.1 \
+  --resolve dev.agentassist.adt.com:443:100.73.16.94 \
+  -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==" \
+  -H "Sec-WebSocket-Version: 13" \
+  "https://dev.agentassist.adt.com/ws?conversation_id=conv-test5678"
