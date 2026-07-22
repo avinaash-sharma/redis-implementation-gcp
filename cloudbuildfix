@@ -1,16 +1,14 @@
 # ── source → image → Artifact Registry → GKE ────────────────────────────────
 # Run from the repo root:
-
-# gcloud builds log e806a6a1-7bcd-4e8b-9ef3-ce059d7de1d9
 #   gcloud builds submit --config cloudbuild.yaml .
 #
 # Every build is tagged with its BUILD_ID (immutable). Rollback:
 #   kubectl rollout undo deployment/adt-ui-connectorv2-1
-# or redeploy any previous tag.
 
 substitutions:
   _REGION: us-central1
   _CLUSTER: gcldccsinsght01
+  _PROJECT: adtgcp-ent-dev-ccs-tlcm-fe10
   _REPO: us-central1-docker.pkg.dev/adtgcp-ent-dev-ccs-tlcm-fe10/ui-connector
   _IMAGE: ui-connector
 
@@ -31,20 +29,23 @@ steps:
       - push
       - ${_REPO}/${_IMAGE}:${BUILD_ID}
 
-  # 3. Stamp the image tag into the manifest and apply it.
+  # 3. Fetch cluster credentials, stamp the image tag, apply, wait for rollout.
+  #    NOTE: entrypoint:bash bypasses this builder's credential wrapper, so
+  #    get-credentials MUST be called explicitly here.
   - name: gcr.io/cloud-builders/kubectl
     id: deploy
     entrypoint: bash
     args:
       - -c
       - |
+        set -e
+        gcloud container clusters get-credentials ${_CLUSTER} \
+          --region ${_REGION} \
+          --project ${_PROJECT}
         sed "s|image: ${_REPO}/${_IMAGE}:.*|image: ${_REPO}/${_IMAGE}:${BUILD_ID}|" \
           deployment.yaml > /workspace/deployment.rendered.yaml
         kubectl apply -f /workspace/deployment.rendered.yaml
         kubectl rollout status deployment/adt-ui-connectorv2-1 --timeout=180s
-    env:
-      - CLOUDSDK_COMPUTE_REGION=${_REGION}
-      - CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER}
 
 images:
   - ${_REPO}/${_IMAGE}:${BUILD_ID}
