@@ -1,5 +1,7 @@
 # ── source → image → Artifact Registry → GKE ────────────────────────────────
 # Run from the repo root:
+
+# gcloud builds log e806a6a1-7bcd-4e8b-9ef3-ce059d7de1d9
 #   gcloud builds submit --config cloudbuild.yaml .
 #
 # Every build is tagged with its BUILD_ID (immutable). Rollback:
