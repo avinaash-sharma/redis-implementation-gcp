@@ -1,0 +1,51 @@
+# ── source → image → Artifact Registry → GKE ────────────────────────────────
+# Run from the repo root:
+#   gcloud builds submit --config cloudbuild.yaml .
+#
+# Every build is tagged with its BUILD_ID (immutable). Rollback:
+#   kubectl rollout undo deployment/adt-ui-connectorv2-1
+# or redeploy any previous tag.
+
+substitutions:
+  _REGION: us-central1
+  _CLUSTER: gcldccsinsght01
+  _REPO: us-central1-docker.pkg.dev/adtgcp-ent-dev-ccs-tlcm-fe10/ui-connector
+  _IMAGE: ui-connector
+
+steps:
+  # 1. Build
+  - name: gcr.io/cloud-builders/docker
+    id: build
+    args:
+      - build
+      - -t
+      - ${_REPO}/${_IMAGE}:${BUILD_ID}
+      - .
+
+  # 2. Push
+  - name: gcr.io/cloud-builders/docker
+    id: push
+    args:
+      - push
+      - ${_REPO}/${_IMAGE}:${BUILD_ID}
+
+  # 3. Stamp the image tag into the manifest and apply it.
+  - name: gcr.io/cloud-builders/kubectl
+    id: deploy
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        sed "s|image: ${_REPO}/${_IMAGE}:.*|image: ${_REPO}/${_IMAGE}:${BUILD_ID}|" \
+          deployment.yaml > /workspace/deployment.rendered.yaml
+        kubectl apply -f /workspace/deployment.rendered.yaml
+        kubectl rollout status deployment/adt-ui-connectorv2-1 --timeout=180s
+    env:
+      - CLOUDSDK_COMPUTE_REGION=${_REGION}
+      - CLOUDSDK_CONTAINER_CLUSTER=${_CLUSTER}
+
+images:
+  - ${_REPO}/${_IMAGE}:${BUILD_ID}
+
+options:
+  logging: CLOUD_LOGGING_ONLY
