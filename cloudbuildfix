@@ -52,3 +52,10 @@ images:
 
 options:
   logging: CLOUD_LOGGING_ONLY
+
+
+
+gcloud projects get-iam-policy adtgcp-ent-dev-ccs-tlcm-fe10 \
+    --flatten="bindings[].members" \
+    --format="table(bindings.role)" \
+    --filter="bindings.members:$(gcloud config get-value account)"
