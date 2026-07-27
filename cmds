@@ -13,3 +13,14 @@ curl -v --http1.1 \
   -H "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==" \
   -H "Sec-WebSocket-Version: 13" \
   "https://dev.agentassist.adt.com/ws?conversation_id=conv-test5678"
+
+
+
+# Check if the pod is actually running or crashing
+kubectl get pods -n ui-connector -l app=<your-bq-operations-app-label>
+
+# Check the logs of the specific pod for startup errors
+kubectl logs <pod-name> -n ui-connector
+
+# Describe the pod to see if the readiness probe is explicitly failing
+kubectl describe pod <pod-name> -n ui-connector
