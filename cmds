@@ -27,3 +27,7 @@ kubectl describe pod <pod-name> -n ui-connector
 
 
 gcloud logging read 'resource.type="http_load_balancer" AND httpRequest.status=503' --limit 20 --format="value(jsonPayload.statusDetails, httpRequest.requestUrl)"
+
+
+
+kubectl get svc adt-ui-connectorv2-1 -o yaml | grep -A3 annotations
