@@ -38,3 +38,14 @@ curl -i -N -H "Host: dev.agentassist.adt.com" \
   --header "Sec-WebSocket-Version: 13" \
   --header "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
   "http://100.73.16.94/ws?conversation_id=test-conv-01&token=x"
+
+
+
+
+
+curl -v --max-time 10 http://100.73.16.94/
+
+curl -v --max-time 10 --header "Host: dev.agentassist.adt.com" http://100.73.16.94/
+
+
+curl -v --max-time 10 --http1.1 --header "Host: dev.agentassist.adt.com" --header "Connection: Upgrade" --header "Upgrade: websocket" --header "Sec-WebSocket-Version: 13" --header "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" "http://100.73.16.94/ws?conversation_id=test-conv-01&token=x"
