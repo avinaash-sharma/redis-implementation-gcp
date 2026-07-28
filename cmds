@@ -4,7 +4,8 @@ curl -v --http1.1 \
   -H "Sec-WebSocket-Version: 13" \
   "https://agentassist.adt.com/ws?conversation_id=test-123"
 
-
+curl -ik --max-time 10 https://dev.agentassist.adt.com/ws
+curl -ik --max-time 10 https://dev.agentassist.adt.com/nonexistent-xyz
 
 
 curl -v --http1.1 \
