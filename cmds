@@ -99,3 +99,6 @@ async def m():
         print(await asyncio.wait_for(ws.recv(),5))
 asyncio.run(m())
 "
+
+
+kubectl exec -i deploy/adt-ui-connectorv2-1 --namespace ui-connector -- python - < ~/wstest.py
