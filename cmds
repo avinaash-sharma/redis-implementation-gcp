@@ -68,3 +68,34 @@ curl -ivk --max-time 10 --http1.1 --header "Host: dev.agentassist.adt.com" --hea
 
 gcloud compute target-https-proxies describe k8s2-um-5fqj581w-ui-connecto53-target-proxy --region us-central1
 gcloud compute forwarding-rules describe k8s2-um-5fqj581w-ui-connecto53-forwarding-rule --region us-central1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+kubectl exec -it deploy/adt-ui-connectorv2-1 --namespace ui-connector -- python -c "
+import asyncio,json,websockets,redis
+async def m():
+    async with websockets.connect('ws://localhost:8080/ws?conversation_id=t1') as ws:
+        print(await ws.recv())
+        r=redis.Redis(host='100.72.86.38',decode_responses=True)
+        sid=r.get('conv-t1'); print('server_id',sid)
+        r.publish(f'{sid}:t1',json.dumps({'type':'test','text':'hello'}))
+        print(await asyncio.wait_for(ws.recv(),5))
+asyncio.run(m())
+"
