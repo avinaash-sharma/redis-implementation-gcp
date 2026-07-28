@@ -31,3 +31,10 @@ gcloud logging read 'resource.type="http_load_balancer" AND httpRequest.status=5
 
 
 kubectl get svc adt-ui-connectorv2-1 -o yaml | grep -A3 annotations
+
+
+curl -i -N -H "Host: dev.agentassist.adt.com" \
+  --header "Connection: Upgrade" --header "Upgrade: websocket" \
+  --header "Sec-WebSocket-Version: 13" \
+  --header "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  "http://100.73.16.94/ws?conversation_id=test-conv-01&token=x"
