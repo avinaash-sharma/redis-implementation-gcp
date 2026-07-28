@@ -78,7 +78,11 @@ gcloud compute forwarding-rules describe k8s2-um-5fqj581w-ui-connecto53-forwardi
 
 
 
-
+Request	Result	Reached origin?
+GET /	200, uvicorn	yes
+GET /asd	404, {"detail":"Not Found"}	yes
+GET /ws	404, {"detail":"Not Found"}	yes
+wss:// upgrade	503 volt-adc	no
 
 
 
