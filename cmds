@@ -90,6 +90,8 @@ wss:// upgrade	503 volt-adc	no
 
 gcloud compute url-maps describe k8s2-um-5fqj581w-ui-connector-api-connector-ingress-9dfwpj53 --region us-central1 | grep -A3 feedback
 
+kubectl logs deploy/adt-bq-operations --namespace ui-connector --tail=500 | grep -v "GET /health"
+
 
 
 
