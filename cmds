@@ -107,3 +107,5 @@ asyncio.run(m())
 
 
 kubectl exec -i deploy/adt-ui-connectorv2-1 --namespace ui-connector -- python - < ~/wstest.py
+
+gcloud run services describe bq-operations --region us-central1 --format="yaml(spec.template.spec.serviceAccountName, spec.template.spec.containers[0].env)"
