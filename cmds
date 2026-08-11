@@ -114,3 +114,12 @@ gcloud run services describe bq-operations --region us-central1 --format="yaml(s
 
 
 kubectl exec deploy/adt-bq-operations --namespace ui-connector -- curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email
+
+
+
+gcloud artifacts docker images describe \
+  us-central1-docker.pkg.dev/adtgcp-ent-dev-ccs-tlcm-fe10/ui-connector/ui-connector:v2 \
+  --format='value(image_summary.digest, image_summary.upload_time)'
+
+kubectl get pod adt-ui-connectorv2-1-766c786cc7-vp4z4 --namespace=ui-connector \
+  --output=jsonpath='{.status.containerStatuses[0].imageID}{"\n"}{.spec.containers[0].imagePullPolicy}{"\n"}'
