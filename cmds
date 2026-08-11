@@ -123,3 +123,15 @@ gcloud artifacts docker images describe \
 
 kubectl get pod adt-ui-connectorv2-1-766c786cc7-vp4z4 --namespace=ui-connector \
   --output=jsonpath='{.status.containerStatuses[0].imageID}{"\n"}{.spec.containers[0].imagePullPolicy}{"\n"}'
+
+
+kubectl set image deployment/adt-ui-connectorv2-1 \
+  adt-ui-connectorv2-1=us-central1-docker.pkg.dev/adtgcp-ent-dev-ccs-tlcm-fe10/ui-connector/ui-connector@sha256:3bc46f895e832638cc30c09316963977e5ac098769abcdc1493e472090cac0c9 \
+  --namespace=ui-connector
+
+kubectl rollout status deployment/adt-ui-connectorv2-1 --namespace=ui-connector
+
+kubectl get pods --namespace=ui-connector --selector=app=adt-ui-connectorv2-1 \
+  --output=jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+
+
