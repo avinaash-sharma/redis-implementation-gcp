@@ -1,0 +1,63 @@
+EMAIL
+
+Subject: Salesforce → GCP Named Credential: cause of 403 error and proposed fix (DEV)
+
+Hi [PM Name],
+
+Here is an update on the Salesforce Named Credential integration in DEV (project: adtgcp-ent-dev-ccs-tlcm-fe10).
+
+SUMMARY
+Salesforce users can sign in to Google through the Named Credential, but their API calls fail with a 403 (PERMISSION_DENIED) error. The OAuth setup is working. The cause is a missing IAM permission on our service account, and one IAM role binding will fix it.
+
+WHAT WE HAVE DONE SO FAR
+1. Created an OAuth 2.0 Client ID (Web application type) in GCP and shared the Client ID and Client Secret with the Salesforce team.
+2. The Salesforce team created a Google Auth. Provider with these credentials, and we registered the Salesforce callback URL in GCP.
+3. The Salesforce team created a Named Credential (OAuth 2.0) that uses this Auth. Provider. The OAuth handshake completes successfully.
+
+HOW THE NAMED CREDENTIAL IS EXPECTED TO WORK
+1. The user signs in to Google through the Named Credential. Salesforce securely stores the access token and refresh token.
+2. Apex uses this access token to call the Google IAM Credentials API (generateIdToken) for the service account adtgcp-ccs-dev-insight-sa. Google returns a short-lived ID token.
+3. Apex calls our backend API with this ID token.
+
+WHERE IT FAILS
+The calls fail at step 2. The OAuth client only confirms who the user is; it does not give the user any GCP permissions. The signed-in user does not have the permission iam.serviceAccounts.getOpenIdToken on the service account, so Google refuses to issue the ID token.
+
+GCP Policy Troubleshooter confirms this: the allow policy is missing the permission, and no deny policy or Principal Access Boundary policy is blocking access.
+
+FIX (STEP 5)
+Grant the role "Service Account OpenID Connect Identity Token Creator" (roles/iam.serviceAccountOpenIdTokenCreator) on the service account adtgcp-ccs-dev-insight-sa only.
+
+The role should be granted on this one service account, not at project level. A project-level grant would let users act as every service account in the project. Someone with IAM admin rights on the project needs to apply it, because our team does not have that access.
+
+WHO GETS THE ROLE: TWO OPTIONS
+This depends on the "Identity Type" setting in the Salesforce Named Credential.
+
+Option 1: Per User
+- Each Salesforce user signs in with their own adt.com Google account, and each API call runs as that user.
+- IAM grant: the role goes to a Google group that contains all Salesforce users of this feature.
+- Pros: GCP audit logs show which user made each call. Access is removed by taking a user out of the group.
+- Cons: every user needs a Google account and group membership, and must complete the sign-in once. This adds onboarding effort.
+
+Option 2: Named Principal
+- One account signs in once in Salesforce, and every user's API call runs under that single identity.
+- IAM grant: the role goes to that one account only.
+- Pros: simplest setup, with a single grant and no sign-in for each user.
+- Cons: the whole integration depends on one account. If that account is disabled or its token is revoked, the integration stops working for everyone. GCP logs also cannot show which Salesforce user made a call. If we choose this option, we should use a dedicated non-personal account rather than an individual's account.
+
+RECOMMENDATION
+- DEV: each user is currently hitting the error under their own name, so Salesforce appears to be set to Per User. Granting the role to a Google group is the quickest way to unblock the team.
+- TST/PROD: both options depend on a human account. For production, we should plan a system-to-system approach, such as a dedicated service account or Workload Identity Federation, so that no individual account is part of the call chain. This needs an architecture decision.
+
+OTHER POINTS TO NOTE
+- Anyone granted this role can call every service that adtgcp-ccs-dev-insight-sa can access. If that service account has broad access, we should create a dedicated service account for Salesforce that can call only the required backend API.
+- The OAuth consent screen should be set to "Internal". If it is External and still in "Testing" status, refresh tokens expire every 7 days and the integration will break every week.
+
+ACTIONS NEEDED
+1. IAM admin: apply the role binding on adtgcp-ccs-dev-insight-sa.
+2. Salesforce team: confirm the Identity Type (Per User or Named Principal) and share the group name or account that should receive the role.
+3. Architecture owner: decide the long-term approach for TST/PROD.
+
+After the role is granted, it can take a few minutes to take effect. The Salesforce team can then retest.
+
+Regards,
+Avinash
