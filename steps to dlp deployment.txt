@@ -1,0 +1,66 @@
+export PROJECT_ID="adtgcp-ent-tst-ccs-tlcm-8143"
+export LOCATION="us-central1"
+export TEMPLATE_NAME="projects/$PROJECT_ID/locations/$LOCATION/inspectTemplates/adt-industry-standard-pci-template"
+export TOKEN="$(gcloud auth print-access-token)"
+H=(-H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: $PROJECT_ID")
+
+
+
+Test before applying
+bash
+./dlp-check.sh inline
+
+Back up the live template
+bash
+export BACKUP="template-backup-$(date +%Y%m%d-%H%M).json"
+curl -sS "${H[@]}" "https://dlp.googleapis.com/v2/$TEMPLATE_NAME" > "$BACKUP"
+jq '{name, updateTime}' "$BACKUP"
+
+Apply the template
+bash
+curl -sS -X PATCH "${H[@]}" -H "Content-Type: application/json" \
+  -d @patch-request-card-only.json \
+  "https://dlp.googleapis.com/v2/$TEMPLATE_NAME" \
+  | jq '{updateTime, error}'
+
+--
+Check what was saved
+
+bash
+curl -sS "${H[@]}" "https://dlp.googleapis.com/v2/$TEMPLATE_NAME" \
+  | jq '{threshold: .inspectConfig.minLikelihood,
+         builtIn: [.inspectConfig.infoTypes[].name],
+         custom: [.inspectConfig.customInfoTypes[] | {name: .infoType.name, likelihood, group: .regex.groupIndexes, trailingSpace: (.regex.pattern | test("\\s$"))}],
+         rulesets: (.inspectConfig.ruleSet | length)}'
+-
+Expected:
+
+threshold is LIKELY.
+Built-in infoTypes: CREDIT_CARD_TRACK_NUMBER, CREDIT_CARD_EXPIRATION_DATE, CREDIT_CARD_DATA, CREDIT_CARD_NUMBER.
+6 custom infoTypes, all with trailingSpace: false.
+CUSTOM_DIGITS_ONLY_TURN and CUSTOM_MONTH_YEAR_ONLY_TURN show group: [1].
+rulesets is 3.
+
+--
+
+Test the live template
+bash
+./dlp-check.sh template
+
+--
+
+Confirm Dialogflow uses this template
+bash
+curl -sS "${H[@]}" "https://$LOCATION-dialogflow.googleapis.com/v2/projects/$PROJECT_ID/locations/$LOCATION/conversationProfiles" \
+  | jq -r '.conversationProfiles[] | "\(.displayName)\t\(.securitySettings)"'
+
+--
+
+Copy the securitySettings value for your profile, then run:
+
+bash
+export SS_NAME="PASTE_securitySettings_VALUE"
+curl -sS "${H[@]}" "https://$LOCATION-dialogflow.googleapis.com/v3/$SS_NAME" \
+  | jq '{inspectTemplate, deidentifyTemplate, redactionStrategy}'
+
+inspectTemplate must be exactly $TEMPLATE_NAME. If deidentifyTemplate is set and lists specific infoTypes, it must include CREDIT_CARD_NUMBER, CUSTOM_BROKEN_DIGITS, CUSTOM_DIGIT_FRAGMENT, CUSTOM_DIGITS_ONLY_TURN, CUSTOM_MONTH_YEAR_ONLY_TURN, CUSTOM_CVV and CUSTOM_EXPIRY_DATE. Otherwise, those findings won’t be redacted.
